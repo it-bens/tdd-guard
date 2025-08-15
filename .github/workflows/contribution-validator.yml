@@ -262,10 +262,14 @@ jobs:
 
       - name: Post Validation Results
         uses: actions/github-script@v7
+        env:
+          FORMATTED_RESULT: ${{ steps.format.outputs.FORMATTED_BODY }}
+          VALIDATION_STATUS: ${{ steps.format.outputs.STATUS }}
         with:
           script: |
-            const formattedResult = `${{ steps.format.outputs.FORMATTED_BODY }}`;
-            const status = `${{ steps.format.outputs.STATUS }}`;
+            // Use environment variable to safely pass the formatted result
+            const formattedResult = process.env.FORMATTED_RESULT;
+            const status = process.env.VALIDATION_STATUS;
             const prNumber = context.payload.pull_request.number;
 
             // Determine if validation passed
