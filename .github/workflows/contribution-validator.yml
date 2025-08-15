@@ -59,28 +59,28 @@ jobs:
       # This reduces token usage by ~60% (3,500 → 1,500 tokens per validation)
 
       - name: Extract Core Requirements
-        uses: sean0x42/markdown-extract@v4
+        uses: sean0x42/markdown-extract@v2.1.0
         id: core-requirements
         with:
           file: CONTRIBUTING.md
           pattern: '## Core Requirements'
 
       - name: Extract Commit Message Guidelines
-        uses: sean0x42/markdown-extract@v4
+        uses: sean0x42/markdown-extract@v2.1.0
         id: commit-guidelines
         with:
           file: CONTRIBUTING.md
           pattern: '## Commit Messages'
 
       - name: Extract Extended Commit Guidelines
-        uses: sean0x42/markdown-extract@v4
+        uses: sean0x42/markdown-extract@v2.1.0
         id: extended-commit-guidelines
         with:
           file: docs/contributing-extended.md
           pattern: '## Detailed Commit Message Guidelines'
 
       - name: Extract PR Requirements
-        uses: sean0x42/markdown-extract@v4
+        uses: sean0x42/markdown-extract@v2.1.0
         id: pr-requirements
         with:
           file: CONTRIBUTING.md
@@ -116,7 +116,7 @@ jobs:
 
       - name: Validate with Gemini CLI
         id: validation
-        uses: google-github-actions/run-gemini-cli@v1
+        uses: google-github-actions/run-gemini-cli@v0.1.11
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           task: |
