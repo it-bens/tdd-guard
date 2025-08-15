@@ -118,30 +118,94 @@ jobs:
             ISSUES: [list violations or "None"]
             SUGGESTIONS: [list improvements or "None"]
 
+      # FORMAT RESULTS: Convert raw output to professional markdown
+
+      - name: Format Validation Results
+        id: format
+        run: |
+          # Get raw output from Gemini
+          RAW_OUTPUT='${{ steps.validation.outputs.summary }}'
+
+          # Extract status
+          STATUS=$(echo "$RAW_OUTPUT" | grep "STATUS:" | sed 's/STATUS: //' | tr -d ' ')
+
+          # Extract and format issues
+          ISSUES_RAW=$(echo "$RAW_OUTPUT" | grep "ISSUES:" | sed 's/ISSUES: //')
+          SUGGESTIONS_RAW=$(echo "$RAW_OUTPUT" | grep "SUGGESTIONS:" | sed 's/SUGGESTIONS: //')
+
+          # Convert JSON arrays to markdown lists
+          ISSUES_FORMATTED=""
+          if [[ "$ISSUES_RAW" != *"None"* && "$ISSUES_RAW" != "" ]]; then
+            ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", "/\n- /g' | sed 's/^/- /')
+          fi
+
+          SUGGESTIONS_FORMATTED=""
+          if [[ "$SUGGESTIONS_RAW" != *"None"* && "$SUGGESTIONS_RAW" != "" ]]; then
+            SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", "/\n- /g' | sed 's/^/- /')
+          fi
+
+          # Determine status emoji and message
+          if [[ "$STATUS" == "PASS" ]]; then
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="Passed"
+            STATUS_MESSAGE="Great work! Your contribution meets our guidelines."
+          elif [[ "$STATUS" == "WARNINGS" ]]; then
+            STATUS_EMOJI="⚠️"
+            STATUS_TEXT="Passed with Warnings"
+            STATUS_MESSAGE="Your contribution looks good, but consider these suggestions for improvement."
+          else
+            STATUS_EMOJI="❌"
+            STATUS_TEXT="Needs Improvement"
+            STATUS_MESSAGE="Your contribution needs some changes to meet our guidelines."
+          fi
+
+          # Build formatted markdown using concatenation
+          FORMATTED_BODY="## 🤖 Contribution Validation Results"
+          FORMATTED_BODY="$FORMATTED_BODY\n\n### Status: $STATUS_EMOJI $STATUS_TEXT"
+          FORMATTED_BODY="$FORMATTED_BODY\n$STATUS_MESSAGE"
+
+          if [[ "$ISSUES_FORMATTED" != "" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n### 📋 Issues Found:"
+            FORMATTED_BODY="$FORMATTED_BODY\n$ISSUES_FORMATTED"
+          fi
+
+          if [[ "$SUGGESTIONS_FORMATTED" != "" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n### 💡 Suggestions for Improvement:"
+            FORMATTED_BODY="$FORMATTED_BODY\n$SUGGESTIONS_FORMATTED"
+          fi
+
+          FORMATTED_BODY="$FORMATTED_BODY\n\n---"
+          FORMATTED_BODY="$FORMATTED_BODY\n*Automated validation based on our [contribution guidelines](CONTRIBUTING.md).*"
+          FORMATTED_BODY="$FORMATTED_BODY\n*If you believe this is incorrect, please mention a maintainer for review.*"
+
+          # Output formatted result
+          echo "FORMATTED_BODY<<EOF" >> $GITHUB_OUTPUT
+          echo "$FORMATTED_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Also output simple status for status checks
+          echo "STATUS=$STATUS" >> $GITHUB_OUTPUT
+
       # RESULTS POSTING: Comment validation results and set status
 
       - name: Post Validation Results
         uses: actions/github-script@v7
         with:
           script: |
-            const validationResult = `${{ steps.validation.outputs.summary }}`;
+            const formattedResult = `${{ steps.format.outputs.FORMATTED_BODY }}`;
+            const status = `${{ steps.format.outputs.STATUS }}`;
             const prNumber = context.payload.pull_request.number;
 
             // Determine if validation passed
-            const isPassing = validationResult.includes('STATUS: PASS');
-            const hasWarnings = validationResult.includes('STATUS: WARNINGS');
+            const isPassing = status === 'PASS';
+            const hasWarnings = status === 'WARNINGS';
 
-            // Post comment with results
+            // Post comment with formatted results
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: `## 🤖 Contribution Validation Results\n\n` +
-                `${validationResult}\n\n---\n` +
-                `*This validation was performed automatically by AI ` +
-                `based on our [contribution guidelines](CONTRIBUTING.md).\n` +
-                `If you believe this is incorrect, ` +
-                `please mention a maintainer for review.*`
+              body: formattedResult
             });
 
             // Set status check
