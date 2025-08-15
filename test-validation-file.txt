@@ -1,0 +1,4 @@
+# Test File for Workflow Validation
+
+This file is created to test the contribution validation workflow.
+It demonstrates a properly structured test change.
