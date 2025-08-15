@@ -55,36 +55,16 @@ jobs:
           # SECURITY: Only checkout target branch, not PR code
           ref: ${{ github.base_ref }}
 
-      # EXTRACTION PHASE: Get relevant sections from contribution guidelines
-      # This reduces token usage by ~60% (3,500 → 1,500 tokens per validation)
+      # SIMPLIFIED: Read full guidelines files for initial testing
+      # TODO: Optimize with extraction once core functionality works
 
-      - name: Extract Core Requirements
-        uses: sean0x42/markdown-extract@v2.1.0
-        id: core-requirements
-        with:
-          file: CONTRIBUTING.md
-          pattern: 'Core Requirements'
-
-      - name: Extract Commit Message Guidelines
-        uses: sean0x42/markdown-extract@v2.1.0
-        id: commit-guidelines
-        with:
-          file: CONTRIBUTING.md
-          pattern: 'Commit Messages'
-
-      - name: Extract Extended Commit Guidelines
-        uses: sean0x42/markdown-extract@v2.1.0
-        id: extended-commit-guidelines
-        with:
-          file: docs/contributing-extended.md
-          pattern: 'Detailed Commit Message Guidelines'
-
-      - name: Extract PR Requirements
-        uses: sean0x42/markdown-extract@v2.1.0
-        id: pr-requirements
-        with:
-          file: CONTRIBUTING.md
-          pattern: 'Pull Requests'
+      - name: Read Contributing Guidelines
+        id: guidelines
+        run: |
+          GUIDELINES=$(cat CONTRIBUTING.md)
+          echo "GUIDELINES<<EOF" >> $GITHUB_OUTPUT
+          echo "$GUIDELINES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # CONTENT COLLECTION: Get PR details for validation
 
@@ -123,18 +103,7 @@ jobs:
             You are a contribution validator for the TDD Guard project.
 
             CONTRIBUTION GUIDELINES:
-
-            Core Requirements:
-            ${{ steps.core-requirements.outputs.content }}
-
-            Commit Message Guidelines:
-            ${{ steps.commit-guidelines.outputs.content }}
-
-            Extended Guidelines:
-            ${{ steps.extended-commit-guidelines.outputs.content }}
-
-            PR Requirements:
-            ${{ steps.pr-requirements.outputs.content }}
+            ${{ steps.guidelines.outputs.GUIDELINES }}
 
             VALIDATE THE FOLLOWING:
 
