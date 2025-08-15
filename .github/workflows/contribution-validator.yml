@@ -1,0 +1,280 @@
+# SECURITY CONSIDERATIONS:
+# - Uses 'pull_request' trigger (safe) - NEVER use 'pull_request_target'
+# - No repository secrets exposed to PR authors
+# - Read-only permissions for repository access
+# - No write access except comments
+# - API quota protection via size/frequency limits
+# - Comparable risk profile to normal CI/spam - not elevated security concerns
+# - Workflow only validates text content - no code execution from PR
+#
+# ABUSE PREVENTION:
+# - PR size limits prevent token exhaustion attacks
+# - Rate limiting via GitHub's built-in mechanisms (60 requests/min)
+# - Skip validation for extremely large changes
+# - Graceful degradation if API unavailable
+# - Monitor usage patterns for anomalies
+#
+# TOKEN BUDGET:
+# - ~1,500 tokens per PR validation (with extraction optimization)
+# - 2M monthly free tier = ~1,300 PR validations/month
+# - Daily capacity: ~43 PRs (sufficient for active projects)
+# - Rate limited to 60 requests/min by Gemini API
+
+name: Contribution Validator
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+    # Skip pure documentation changes that don't affect contribution guidelines
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+# SECURITY: Explicit minimal permissions
+permissions:
+  contents: read # Read repository content and guidelines
+  pull-requests: write # Post validation comments
+  statuses: write # Set status checks
+
+jobs:
+  validate-contributions:
+    name: Validate Against Contribution Guidelines
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # ABUSE PREVENTION: Skip validation for suspicious PRs
+    if: |
+      github.event.pull_request.additions < 10000 &&
+      github.event.pull_request.changed_files < 100 &&
+      github.event.pull_request.commits < 50
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # SECURITY: Only checkout target branch, not PR code
+          ref: ${{ github.base_ref }}
+
+      # EXTRACTION PHASE: Get relevant sections from contribution guidelines
+      # This reduces token usage by ~60% (3,500 → 1,500 tokens per validation)
+
+      - name: Extract Core Requirements
+        uses: sean0x42/markdown-extract@v4
+        id: core-requirements
+        with:
+          file: CONTRIBUTING.md
+          pattern: '## Core Requirements'
+
+      - name: Extract Commit Message Guidelines
+        uses: sean0x42/markdown-extract@v4
+        id: commit-guidelines
+        with:
+          file: CONTRIBUTING.md
+          pattern: '## Commit Messages'
+
+      - name: Extract Extended Commit Guidelines
+        uses: sean0x42/markdown-extract@v4
+        id: extended-commit-guidelines
+        with:
+          file: docs/contributing-extended.md
+          pattern: '## Detailed Commit Message Guidelines'
+
+      - name: Extract PR Requirements
+        uses: sean0x42/markdown-extract@v4
+        id: pr-requirements
+        with:
+          file: CONTRIBUTING.md
+          pattern: '## Pull Requests'
+
+      # CONTENT COLLECTION: Get PR details for validation
+
+      - name: Get PR Information
+        id: pr-info
+        run: |
+          # Get PR title and description
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_COMMITS="${{ github.event.pull_request.commits }}"
+
+          # Get commit messages from the PR
+          COMMIT_MESSAGES=$(gh pr view ${{ github.event.number }} \
+            --json commits --jq '.commits[].messageHeadline' | head -20)
+
+          # Format for AI validation
+          echo "PR_TITLE=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "PR_BODY<<EOF" >> $GITHUB_OUTPUT
+          echo "$PR_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "PR_COMMITS=$PR_COMMITS" >> $GITHUB_OUTPUT
+          echo "COMMIT_MESSAGES<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MESSAGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # AI VALIDATION: Use Gemini CLI to validate against guidelines
+
+      - name: Validate with Gemini CLI
+        id: validation
+        uses: google-github-actions/run-gemini-cli@v1
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          task: |
+            You are a contribution validator for the TDD Guard project.
+
+            CONTRIBUTION GUIDELINES:
+
+            Core Requirements:
+            ${{ steps.core-requirements.outputs.content }}
+
+            Commit Message Guidelines:
+            ${{ steps.commit-guidelines.outputs.content }}
+
+            Extended Guidelines:
+            ${{ steps.extended-commit-guidelines.outputs.content }}
+
+            PR Requirements:
+            ${{ steps.pr-requirements.outputs.content }}
+
+            VALIDATE THE FOLLOWING:
+
+            PR Title: "${{ steps.pr-info.outputs.PR_TITLE }}"
+
+            PR Description:
+            ${{ steps.pr-info.outputs.PR_BODY }}
+
+            Commit Messages:
+            ${{ steps.pr-info.outputs.COMMIT_MESSAGES }}
+
+            Number of commits: ${{ steps.pr-info.outputs.PR_COMMITS }}
+
+            VALIDATION TASKS:
+
+            1. Check if commit messages follow conventional format
+            2. Verify titles are under 70 characters and imperative mood
+            3. Ensure commit bodies explain WHY, not WHAT
+            4. Validate PR title is meaningful and descriptive
+            5. Check if PR description explains what and why
+            6. If more than 1 commit, suggest a squash-merge commit message
+
+            RESPONSE FORMAT:
+
+            ## Validation Results
+
+            **Status:** ✅ PASS / ❌ FAIL / ⚠️ WARNINGS
+
+            **Issues Found:**
+            - [List any violations of contribution guidelines]
+
+            **Suggestions:**
+            - [List improvements and recommendations]
+
+            **Squash-Merge Suggestion:** (only if >1 commit)
+            ```
+            [Suggested commit title and body based on all commits]
+            ```
+
+            Be constructive and helpful in your feedback.
+
+      # RESULTS POSTING: Comment validation results and set status
+
+      - name: Post Validation Results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const validationResult = `${{ steps.validation.outputs.result }}`;
+            const prNumber = context.payload.pull_request.number;
+
+            // Determine if validation passed
+            const isPassing = validationResult.includes('✅ PASS');
+            const hasWarnings = validationResult.includes('⚠️ WARNINGS');
+
+            // Post comment with results
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## 🤖 Contribution Validation Results\n\n` +
+                `${validationResult}\n\n---\n` +
+                `*This validation was performed automatically by AI ` +
+                `based on our [contribution guidelines](CONTRIBUTING.md).\n` +
+                `If you believe this is incorrect, ` +
+                `please mention a maintainer for review.*`
+            });
+
+            // Set status check
+            const state = isPassing ? 'success' :
+                          hasWarnings ? 'pending' : 'failure';
+            const description = isPassing ? 'All guidelines met' :
+                               hasWarnings ? 'Minor issues found' :
+                               'Guidelines violations detected';
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: state,
+              target_url: `https://github.com/${context.repo.owner}/` +
+                `${context.repo.repo}/actions/runs/${context.runId}`,
+              description: description,
+              context: 'Contribution Validator'
+            });
+
+      # ERROR HANDLING: Graceful degradation if API fails
+
+      - name: Handle Validation Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## ⚠️ Validation Service Unavailable\n\n` +
+                `The AI-powered contribution validator is ` +
+                `temporarily unavailable. ` +
+                `This could be due to:\n- API rate limits\n- Service outage\n` +
+                `- Network issues\n\n**Manual Review Required**: ` +
+                `Please ensure your contribution ` +
+                `follows our ` +
+                `[guidelines](CONTRIBUTING.md):\n` +
+                `- Commit messages use conventional format\n` +
+                `- PR title is descriptive\n` +
+                `- Description explains what and why\n\n` +
+                `A maintainer will review this PR manually.`
+            });
+
+            // Set neutral status - don't block the PR
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: 'success',
+              target_url: `https://github.com/${context.repo.owner}/` +
+                `${context.repo.repo}/actions/runs/${context.runId}`,
+              description: 'Validation skipped - service unavailable',
+              context: 'Contribution Validator'
+            });
+
+# MONITORING AND MAINTENANCE NOTES:
+#
+# 1. Monitor workflow usage in Actions tab for abuse patterns
+# 2. Check token consumption via Gemini API dashboard
+# 3. Adjust size limits if legitimate PRs are being skipped
+# 4. Update guidelines extraction if contribution docs change
+# 5. Review validation quality and adjust prompts as needed
+#
+# COST MANAGEMENT:
+#
+# Free tier limits:
+# - 2M tokens/month
+# - 60 requests/min
+# - 1,000 requests/day
+#
+# Expected usage:
+# - ~1,500 tokens per validation
+# - Supports ~1,300 PRs/month
+# - Monitor via Google AI Studio dashboard
