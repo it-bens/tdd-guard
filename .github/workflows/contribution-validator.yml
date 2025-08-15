@@ -123,25 +123,39 @@ jobs:
       - name: Format Validation Results
         id: format
         run: |
-          # Get raw output from Gemini
-          RAW_OUTPUT='${{ steps.validation.outputs.summary }}'
+          # Store raw output in temp file to avoid shell quote issues
+          cat << 'RAWEOF' > /tmp/raw_output.txt
+          ${{ steps.validation.outputs.summary }}
+          RAWEOF
 
           # Extract status
-          STATUS=$(echo "$RAW_OUTPUT" | grep "STATUS:" | sed 's/STATUS: //' | tr -d ' ')
+          STATUS=$(grep "STATUS:" /tmp/raw_output.txt | sed 's/STATUS: //' | tr -d ' ')
 
-          # Extract and format issues
-          ISSUES_RAW=$(echo "$RAW_OUTPUT" | grep "ISSUES:" | sed 's/ISSUES: //')
-          SUGGESTIONS_RAW=$(echo "$RAW_OUTPUT" | grep "SUGGESTIONS:" | sed 's/SUGGESTIONS: //')
+          # Extract and format issues using a safer approach
+          ISSUES_RAW=$(grep "ISSUES:" /tmp/raw_output.txt | sed 's/ISSUES: //')
+          SUGGESTIONS_RAW=$(grep "SUGGESTIONS:" /tmp/raw_output.txt | sed 's/SUGGESTIONS: //')
 
-          # Convert JSON arrays to markdown lists
+          # Convert JSON arrays to markdown lists using jq if possible, otherwise simple parsing
           ISSUES_FORMATTED=""
           if [[ "$ISSUES_RAW" != *"None"* && "$ISSUES_RAW" != "" ]]; then
-            ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", "/\n- /g' | sed 's/^/- /')
+            # Try to parse as JSON array, fallback to simple parsing
+            if echo "$ISSUES_RAW" | jq -r '.[]' > /dev/null 2>&1; then
+              ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | jq -r '.[] | "- " + .')
+            else
+              # Simple text parsing for non-JSON format
+              ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
+            fi
           fi
 
           SUGGESTIONS_FORMATTED=""
           if [[ "$SUGGESTIONS_RAW" != *"None"* && "$SUGGESTIONS_RAW" != "" ]]; then
-            SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", "/\n- /g' | sed 's/^/- /')
+            # Try to parse as JSON array, fallback to simple parsing
+            if echo "$SUGGESTIONS_RAW" | jq -r '.[]' > /dev/null 2>&1; then
+              SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | jq -r '.[] | "- " + .')
+            else
+              # Simple text parsing for non-JSON format
+              SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
+            fi
           fi
 
           # Determine status emoji and message
