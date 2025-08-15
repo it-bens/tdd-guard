@@ -158,13 +158,18 @@ jobs:
           # Extract status
           STATUS=$(grep "STATUS:" /tmp/raw_output.txt | sed 's/STATUS: //' | tr -d ' ')
 
+          # Add debugging - show what AI actually returned
+          echo "=== DEBUG: Raw AI Output ===" >> $GITHUB_STEP_SUMMARY
+          cat /tmp/raw_output.txt >> $GITHUB_STEP_SUMMARY
+          echo "=== END DEBUG ===" >> $GITHUB_STEP_SUMMARY
+
           # Extract and format issues using a safer approach
-          ISSUES_RAW=$(grep "ISSUES:" /tmp/raw_output.txt | sed 's/ISSUES: //')
-          SUGGESTIONS_RAW=$(grep "SUGGESTIONS:" /tmp/raw_output.txt | sed 's/SUGGESTIONS: //')
+          ISSUES_RAW=$(grep "ISSUES:" /tmp/raw_output.txt | sed 's/ISSUES: //' || echo "")
+          SUGGESTIONS_RAW=$(grep "SUGGESTIONS:" /tmp/raw_output.txt | sed 's/SUGGESTIONS: //' || echo "")
 
           # Convert JSON arrays to markdown lists using jq if possible, otherwise simple parsing
           ISSUES_FORMATTED=""
-          if [[ "$ISSUES_RAW" != *"None"* && "$ISSUES_RAW" != "" ]]; then
+          if [[ "$ISSUES_RAW" != *"None"* && "$ISSUES_RAW" != "" && "$ISSUES_RAW" != "ISSUES:" ]]; then
             # Try to parse as JSON array, fallback to simple parsing
             if echo "$ISSUES_RAW" | jq -r '.[]' > /dev/null 2>&1; then
               ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | jq -r '.[] | "- " + .')
@@ -175,7 +180,7 @@ jobs:
           fi
 
           SUGGESTIONS_FORMATTED=""
-          if [[ "$SUGGESTIONS_RAW" != *"None"* && "$SUGGESTIONS_RAW" != "" ]]; then
+          if [[ "$SUGGESTIONS_RAW" != *"None"* && "$SUGGESTIONS_RAW" != "" && "$SUGGESTIONS_RAW" != "SUGGESTIONS:" ]]; then
             # Try to parse as JSON array, fallback to simple parsing
             if echo "$SUGGESTIONS_RAW" | jq -r '.[]' > /dev/null 2>&1; then
               SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | jq -r '.[] | "- " + .')
@@ -185,10 +190,15 @@ jobs:
             fi
           fi
 
-          # Extract improved content suggestions
-          IMPROVED_TITLE=$(grep "IMPROVED_TITLE:" /tmp/raw_output.txt | sed 's/IMPROVED_TITLE: //' || echo "")
-          IMPROVED_COMMITS=$(grep "IMPROVED_COMMITS:" /tmp/raw_output.txt | sed 's/IMPROVED_COMMITS: //' || echo "")
-          IMPROVED_DESCRIPTION=$(grep "IMPROVED_DESCRIPTION:" /tmp/raw_output.txt | sed 's/IMPROVED_DESCRIPTION: //' || echo "")
+          # Extract improved content suggestions with better error handling
+          IMPROVED_TITLE=$(grep "IMPROVED_TITLE:" /tmp/raw_output.txt | sed 's/IMPROVED_TITLE: //' | head -1 || echo "")
+          IMPROVED_COMMITS=$(grep "IMPROVED_COMMITS:" /tmp/raw_output.txt | sed 's/IMPROVED_COMMITS: //' | head -1 || echo "")
+          IMPROVED_DESCRIPTION=$(grep "IMPROVED_DESCRIPTION:" /tmp/raw_output.txt | sed 's/IMPROVED_DESCRIPTION: //' | head -1 || echo "")
+
+          # Clean up any remaining field names that appear as content
+          IMPROVED_TITLE=$(echo "$IMPROVED_TITLE" | sed 's/^IMPROVED_TITLE://g' | sed 's/^IMPROVED_COMMITS://g' | sed 's/^IMPROVED_DESCRIPTION://g')
+          IMPROVED_COMMITS=$(echo "$IMPROVED_COMMITS" | sed 's/^IMPROVED_TITLE://g' | sed 's/^IMPROVED_COMMITS://g' | sed 's/^IMPROVED_DESCRIPTION://g')
+          IMPROVED_DESCRIPTION=$(echo "$IMPROVED_DESCRIPTION" | sed 's/^IMPROVED_TITLE://g' | sed 's/^IMPROVED_COMMITS://g' | sed 's/^IMPROVED_DESCRIPTION://g')
 
           # Determine status emoji and message
           if [[ "$STATUS" == "PASS" ]]; then
@@ -205,55 +215,69 @@ jobs:
             STATUS_MESSAGE="Your contribution needs some changes to meet our guidelines."
           fi
 
-          # Build formatted markdown using concatenation
-          FORMATTED_BODY="## 🤖 Contribution Validation Results"
-          FORMATTED_BODY="$FORMATTED_BODY\n\n### Status: $STATUS_EMOJI $STATUS_TEXT"
-          FORMATTED_BODY="$FORMATTED_BODY\n$STATUS_MESSAGE"
+          # Build formatted markdown using echo statements to avoid YAML issues
+          echo "## 🤖 Contribution Validation Results" > /tmp/formatted_output.md
+          echo "" >> /tmp/formatted_output.md
+          echo "### Status: $STATUS_EMOJI $STATUS_TEXT" >> /tmp/formatted_output.md
+          echo "$STATUS_MESSAGE" >> /tmp/formatted_output.md
 
+          # Add Issues section if available
           if [[ "$ISSUES_FORMATTED" != "" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n### 📋 Issues Found:"
-            FORMATTED_BODY="$FORMATTED_BODY\n$ISSUES_FORMATTED"
+            echo "" >> /tmp/formatted_output.md
+            echo "### 📋 Issues Found:" >> /tmp/formatted_output.md
+            echo "$ISSUES_FORMATTED" >> /tmp/formatted_output.md
           fi
 
+          # Add Suggestions section if available
           if [[ "$SUGGESTIONS_FORMATTED" != "" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n### 💡 Suggestions for Improvement:"
-            FORMATTED_BODY="$FORMATTED_BODY\n$SUGGESTIONS_FORMATTED"
+            echo "" >> /tmp/formatted_output.md
+            echo "### 💡 Suggestions for Improvement:" >> /tmp/formatted_output.md
+            echo "$SUGGESTIONS_FORMATTED" >> /tmp/formatted_output.md
           fi
 
-          # Add improved content sections if available
+          # Add Specific Improvements section if any improved content is available
           if [[ "$IMPROVED_TITLE" != "" || "$IMPROVED_COMMITS" != "" || "$IMPROVED_DESCRIPTION" != "" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n### ✨ Specific Improvements:"
+            echo "" >> /tmp/formatted_output.md
+            echo "### ✨ Specific Improvements:" >> /tmp/formatted_output.md
           fi
 
+          # Add Suggested PR Title if available
           if [[ "$IMPROVED_TITLE" != "" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📝 Suggested PR Title:"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
-            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_TITLE"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            echo "" >> /tmp/formatted_output.md
+            echo "#### 📝 Suggested PR Title:" >> /tmp/formatted_output.md
+            echo '```' >> /tmp/formatted_output.md
+            echo "$IMPROVED_TITLE" >> /tmp/formatted_output.md
+            echo '```' >> /tmp/formatted_output.md
           fi
 
+          # Add Suggested Commit Message if available
           if [[ "$IMPROVED_COMMITS" != "" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📋 Suggested Commit Message:"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
-            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_COMMITS"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            echo "" >> /tmp/formatted_output.md
+            echo "#### 📋 Suggested Commit Message:" >> /tmp/formatted_output.md
+            echo '```' >> /tmp/formatted_output.md
+            echo "$IMPROVED_COMMITS" >> /tmp/formatted_output.md
+            echo '```' >> /tmp/formatted_output.md
           fi
 
+          # Add Suggested PR Description if available
           if [[ "$IMPROVED_DESCRIPTION" != "" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📄 Suggested PR Description:"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
-            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_DESCRIPTION"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            echo "" >> /tmp/formatted_output.md
+            echo "#### 📄 Suggested PR Description:" >> /tmp/formatted_output.md
+            echo '```' >> /tmp/formatted_output.md
+            echo "$IMPROVED_DESCRIPTION" >> /tmp/formatted_output.md
+            echo '```' >> /tmp/formatted_output.md
           fi
 
-          FORMATTED_BODY="$FORMATTED_BODY\n\n---"
-          FORMATTED_BODY="$FORMATTED_BODY\n*Automated validation based on our [contribution guidelines](CONTRIBUTING.md).*"
-          FORMATTED_BODY="$FORMATTED_BODY\n*If you believe this is incorrect, please mention a maintainer for review.*"
+          # Add footer
+          echo "" >> /tmp/formatted_output.md
+          echo "---" >> /tmp/formatted_output.md
+          echo "*Automated validation based on our [contribution guidelines](CONTRIBUTING.md).*" >> /tmp/formatted_output.md
+          echo "*If you believe this is incorrect, please mention a maintainer for review.*" >> /tmp/formatted_output.md
 
-          # Output formatted result
-          echo "FORMATTED_BODY<<EOF" >> $GITHUB_OUTPUT
-          echo "$FORMATTED_BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # Output formatted result using proper multiline delimiter
+          echo "FORMATTED_BODY<<GITHUBEOF" >> $GITHUB_OUTPUT
+          cat /tmp/formatted_output.md >> $GITHUB_OUTPUT
+          echo "GITHUBEOF" >> $GITHUB_OUTPUT
 
           # Also output simple status for status checks
           echo "STATUS=$STATUS" >> $GITHUB_OUTPUT
