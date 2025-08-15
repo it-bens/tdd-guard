@@ -80,6 +80,13 @@ jobs:
           COMMIT_MESSAGES=$(gh pr view ${{ github.event.number }} \
             --json commits --jq '.commits[].messageHeadline' | head -20)
 
+          # Get files changed in the PR for context
+          FILES_CHANGED=$(gh pr view ${{ github.event.number }} \
+            --json files --jq '.files[].path' | head -10)
+
+          # Get a summary of changes (first few lines of diff)
+          CHANGES_SUMMARY=$(gh pr diff ${{ github.event.number }} | head -50)
+
           # Format for AI validation
           echo "PR_TITLE=$PR_TITLE" >> $GITHUB_OUTPUT
           echo "PR_BODY<<EOF" >> $GITHUB_OUTPUT
@@ -88,6 +95,12 @@ jobs:
           echo "PR_COMMITS=$PR_COMMITS" >> $GITHUB_OUTPUT
           echo "COMMIT_MESSAGES<<EOF" >> $GITHUB_OUTPUT
           echo "$COMMIT_MESSAGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "FILES_CHANGED<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "CHANGES_SUMMARY<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES_SUMMARY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,19 +117,33 @@ jobs:
               "model": "gemini-1.5-flash"
             }
           prompt: |
-            Validate this contribution against TDD Guard project guidelines.
+            Validate this contribution to TDD Guard project and provide specific improvements.
 
-            Guidelines: Use conventional commits. PR titles must be descriptive. Commit messages should explain WHY, not WHAT. PRs need clear descriptions.
+            PROJECT CONTEXT: TDD Guard is a Claude Code hook that enforces Test-Driven Development.
 
+            GUIDELINES:
+            - Use conventional commits (type: description)
+            - PR titles must be descriptive and use conventional format
+            - Commit messages must explain WHY, not WHAT
+            - PRs need clear descriptions explaining changes and purpose
+
+            CURRENT CONTRIBUTION:
             PR Title: "${{ steps.pr-info.outputs.PR_TITLE }}"
             PR Description: "${{ steps.pr-info.outputs.PR_BODY }}"
             Commit Messages: ${{ steps.pr-info.outputs.COMMIT_MESSAGES }}
             Commit Count: ${{ steps.pr-info.outputs.PR_COMMITS }}
+            Files Changed: ${{ steps.pr-info.outputs.FILES_CHANGED }}
+
+            CHANGES MADE:
+            ${{ steps.pr-info.outputs.CHANGES_SUMMARY }}
 
             Return ONLY this format:
             STATUS: PASS/FAIL/WARNINGS
             ISSUES: [list violations or "None"]
             SUGGESTIONS: [list improvements or "None"]
+            IMPROVED_TITLE: [specific suggested PR title based on actual changes]
+            IMPROVED_COMMITS: [rewritten commit messages explaining WHY]
+            IMPROVED_DESCRIPTION: [enhanced PR description explaining what and why]
 
       # FORMAT RESULTS: Convert raw output to professional markdown
 
@@ -158,6 +185,11 @@ jobs:
             fi
           fi
 
+          # Extract improved content suggestions
+          IMPROVED_TITLE=$(grep "IMPROVED_TITLE:" /tmp/raw_output.txt | sed 's/IMPROVED_TITLE: //' || echo "")
+          IMPROVED_COMMITS=$(grep "IMPROVED_COMMITS:" /tmp/raw_output.txt | sed 's/IMPROVED_COMMITS: //' || echo "")
+          IMPROVED_DESCRIPTION=$(grep "IMPROVED_DESCRIPTION:" /tmp/raw_output.txt | sed 's/IMPROVED_DESCRIPTION: //' || echo "")
+
           # Determine status emoji and message
           if [[ "$STATUS" == "PASS" ]]; then
             STATUS_EMOJI="✅"
@@ -186,6 +218,32 @@ jobs:
           if [[ "$SUGGESTIONS_FORMATTED" != "" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n### 💡 Suggestions for Improvement:"
             FORMATTED_BODY="$FORMATTED_BODY\n$SUGGESTIONS_FORMATTED"
+          fi
+
+          # Add improved content sections if available
+          if [[ "$IMPROVED_TITLE" != "" || "$IMPROVED_COMMITS" != "" || "$IMPROVED_DESCRIPTION" != "" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n### ✨ Specific Improvements:"
+          fi
+
+          if [[ "$IMPROVED_TITLE" != "" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📝 Suggested PR Title:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_TITLE"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+          fi
+
+          if [[ "$IMPROVED_COMMITS" != "" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📋 Suggested Commit Message:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_COMMITS"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+          fi
+
+          if [[ "$IMPROVED_DESCRIPTION" != "" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📄 Suggested PR Description:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_DESCRIPTION"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
           fi
 
           FORMATTED_BODY="$FORMATTED_BODY\n\n---"
