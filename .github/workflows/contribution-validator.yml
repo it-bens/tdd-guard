@@ -63,28 +63,28 @@ jobs:
         id: core-requirements
         with:
           file: CONTRIBUTING.md
-          pattern: '## Core Requirements'
+          pattern: 'Core Requirements'
 
       - name: Extract Commit Message Guidelines
         uses: sean0x42/markdown-extract@v2.1.0
         id: commit-guidelines
         with:
           file: CONTRIBUTING.md
-          pattern: '## Commit Messages'
+          pattern: 'Commit Messages'
 
       - name: Extract Extended Commit Guidelines
         uses: sean0x42/markdown-extract@v2.1.0
         id: extended-commit-guidelines
         with:
           file: docs/contributing-extended.md
-          pattern: '## Detailed Commit Message Guidelines'
+          pattern: 'Detailed Commit Message Guidelines'
 
       - name: Extract PR Requirements
         uses: sean0x42/markdown-extract@v2.1.0
         id: pr-requirements
         with:
           file: CONTRIBUTING.md
-          pattern: '## Pull Requests'
+          pattern: 'Pull Requests'
 
       # CONTENT COLLECTION: Get PR details for validation
 
