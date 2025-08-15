@@ -99,51 +99,24 @@ jobs:
         uses: google-github-actions/run-gemini-cli@v0.1.11
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          task: |
-            You are a contribution validator for the TDD Guard project.
+          settings: |
+            {
+              "model": "gemini-1.5-flash"
+            }
+          prompt: |
+            Validate this contribution against TDD Guard project guidelines.
 
-            CONTRIBUTION GUIDELINES:
-            ${{ steps.guidelines.outputs.GUIDELINES }}
-
-            VALIDATE THE FOLLOWING:
+            Guidelines: Use conventional commits. PR titles must be descriptive. Commit messages should explain WHY, not WHAT. PRs need clear descriptions.
 
             PR Title: "${{ steps.pr-info.outputs.PR_TITLE }}"
+            PR Description: "${{ steps.pr-info.outputs.PR_BODY }}"
+            Commit Messages: ${{ steps.pr-info.outputs.COMMIT_MESSAGES }}
+            Commit Count: ${{ steps.pr-info.outputs.PR_COMMITS }}
 
-            PR Description:
-            ${{ steps.pr-info.outputs.PR_BODY }}
-
-            Commit Messages:
-            ${{ steps.pr-info.outputs.COMMIT_MESSAGES }}
-
-            Number of commits: ${{ steps.pr-info.outputs.PR_COMMITS }}
-
-            VALIDATION TASKS:
-
-            1. Check if commit messages follow conventional format
-            2. Verify titles are under 70 characters and imperative mood
-            3. Ensure commit bodies explain WHY, not WHAT
-            4. Validate PR title is meaningful and descriptive
-            5. Check if PR description explains what and why
-            6. If more than 1 commit, suggest a squash-merge commit message
-
-            RESPONSE FORMAT:
-
-            ## Validation Results
-
-            **Status:** ✅ PASS / ❌ FAIL / ⚠️ WARNINGS
-
-            **Issues Found:**
-            - [List any violations of contribution guidelines]
-
-            **Suggestions:**
-            - [List improvements and recommendations]
-
-            **Squash-Merge Suggestion:** (only if >1 commit)
-            ```
-            [Suggested commit title and body based on all commits]
-            ```
-
-            Be constructive and helpful in your feedback.
+            Return ONLY this format:
+            STATUS: PASS/FAIL/WARNINGS
+            ISSUES: [list violations or "None"]
+            SUGGESTIONS: [list improvements or "None"]
 
       # RESULTS POSTING: Comment validation results and set status
 
@@ -155,8 +128,8 @@ jobs:
             const prNumber = context.payload.pull_request.number;
 
             // Determine if validation passed
-            const isPassing = validationResult.includes('✅ PASS');
-            const hasWarnings = validationResult.includes('⚠️ WARNINGS');
+            const isPassing = validationResult.includes('STATUS: PASS');
+            const hasWarnings = validationResult.includes('STATUS: WARNINGS');
 
             // Post comment with results
             await github.rest.issues.createComment({
