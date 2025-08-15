@@ -1,0 +1,2 @@
+This is a test file for validating the contribution workflow.
+It should trigger validation errors due to poor commit practices.
