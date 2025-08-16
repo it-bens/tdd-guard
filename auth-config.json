@@ -1,0 +1,15 @@
+{
+  "authentication": {
+    "providers": ["local", "oauth", "saml"],
+    "sessionTimeout": 3600,
+    "tokenRefresh": true,
+    "security": {
+      "mfa": true,
+      "passwordPolicy": {
+        "minLength": 12,
+        "requireSymbols": true,
+        "requireNumbers": true
+      }
+    }
+  }
+}
