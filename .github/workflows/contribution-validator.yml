@@ -137,58 +137,56 @@ jobs:
             CHANGES MADE:
             ${{ steps.pr-info.outputs.CHANGES_SUMMARY }}
 
-            Return ONLY this format:
-            STATUS: PASS/FAIL/WARNINGS
-            ISSUES: [list violations or "None"]
-            SUGGESTIONS: [list improvements or "None"]
-            IMPROVED_TITLE: [specific suggested PR title based on actual changes]
-            IMPROVED_COMMITS: [rewritten commit messages explaining WHY]
-            IMPROVED_DESCRIPTION: [enhanced PR description explaining what and why]
+            Return ONLY valid JSON in this exact format (no other text):
+            {
+              "status": "PASS" or "FAIL" or "WARNINGS",
+              "issues": ["issue 1", "issue 2"] or [],
+              "suggestions": ["suggestion 1", "suggestion 2"] or [],
+              "improved_title": "suggested PR title" or "",
+              "improved_commits": "suggested commit message with\nmultiple lines" or "",
+              "improved_description": "suggested PR description\nwith multiple lines" or ""
+            }
+
+            Ensure the response is valid JSON that can be parsed. Use empty arrays [] for no issues/suggestions, and empty strings "" for no improvements.
 
       # FORMAT RESULTS: Convert raw output to professional markdown
 
       - name: Format Validation Results
         id: format
         run: |
-          # Store raw output in temp file to avoid shell quote issues
-          cat << 'RAWEOF' > /tmp/raw_output.txt
+          # Store raw output in temp file
+          cat << 'RAWEOF' > /tmp/raw_output.json
           ${{ steps.validation.outputs.summary }}
           RAWEOF
 
-          # Extract status
-          STATUS=$(grep "STATUS:" /tmp/raw_output.txt | sed 's/STATUS: //' | tr -d ' ')
+          # Validate JSON format
+          if ! jq empty /tmp/raw_output.json 2>/dev/null; then
+            echo "ERROR: Invalid JSON response from AI"
+            echo "Raw output:"
+            cat /tmp/raw_output.json
+            # Fallback to simple parsing if JSON is invalid
+            echo '{"status": "FAIL", "issues": ["Invalid AI response format"], "suggestions": [], "improved_title": "", "improved_commits": "", "improved_description": ""}' > /tmp/raw_output.json
+          fi
 
-          # Extract and format issues using a safer approach
-          ISSUES_RAW=$(grep "ISSUES:" /tmp/raw_output.txt | sed 's/ISSUES: //')
-          SUGGESTIONS_RAW=$(grep "SUGGESTIONS:" /tmp/raw_output.txt | sed 's/SUGGESTIONS: //')
+          # Extract values from JSON
+          STATUS=$(jq -r '.status' /tmp/raw_output.json)
 
-          # Convert JSON arrays to markdown lists using jq if possible, otherwise simple parsing
+          # Format issues as markdown list
           ISSUES_FORMATTED=""
-          if [[ "$ISSUES_RAW" != *"None"* && "$ISSUES_RAW" != "" ]]; then
-            # Try to parse as JSON array, fallback to simple parsing
-            if echo "$ISSUES_RAW" | jq -r '.[]' > /dev/null 2>&1; then
-              ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | jq -r '.[] | "- " + .')
-            else
-              # Simple text parsing for non-JSON format
-              ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
-            fi
+          if [ "$(jq -r '.issues | length' /tmp/raw_output.json)" -gt 0 ]; then
+            ISSUES_FORMATTED=$(jq -r '.issues[] | "- " + .' /tmp/raw_output.json)
           fi
 
+          # Format suggestions as markdown list
           SUGGESTIONS_FORMATTED=""
-          if [[ "$SUGGESTIONS_RAW" != *"None"* && "$SUGGESTIONS_RAW" != "" ]]; then
-            # Try to parse as JSON array, fallback to simple parsing
-            if echo "$SUGGESTIONS_RAW" | jq -r '.[]' > /dev/null 2>&1; then
-              SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | jq -r '.[] | "- " + .')
-            else
-              # Simple text parsing for non-JSON format
-              SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
-            fi
+          if [ "$(jq -r '.suggestions | length' /tmp/raw_output.json)" -gt 0 ]; then
+            SUGGESTIONS_FORMATTED=$(jq -r '.suggestions[] | "- " + .' /tmp/raw_output.json)
           fi
 
-          # Extract improved content suggestions
-          IMPROVED_TITLE=$(grep "IMPROVED_TITLE:" /tmp/raw_output.txt | sed 's/IMPROVED_TITLE: //' || echo "")
-          IMPROVED_COMMITS=$(grep "IMPROVED_COMMITS:" /tmp/raw_output.txt | sed 's/IMPROVED_COMMITS: //' || echo "")
-          IMPROVED_DESCRIPTION=$(grep "IMPROVED_DESCRIPTION:" /tmp/raw_output.txt | sed 's/IMPROVED_DESCRIPTION: //' || echo "")
+          # Extract improved content
+          IMPROVED_TITLE=$(jq -r '.improved_title // ""' /tmp/raw_output.json)
+          IMPROVED_COMMITS=$(jq -r '.improved_commits // ""' /tmp/raw_output.json)
+          IMPROVED_DESCRIPTION=$(jq -r '.improved_description // ""' /tmp/raw_output.json)
 
           # Determine status emoji and message
           if [[ "$STATUS" == "PASS" ]]; then
@@ -205,41 +203,41 @@ jobs:
             STATUS_MESSAGE="Your contribution needs some changes to meet our guidelines."
           fi
 
-          # Build formatted markdown using concatenation
+          # Build formatted markdown
           FORMATTED_BODY="## 🤖 Contribution Validation Results"
           FORMATTED_BODY="$FORMATTED_BODY\n\n### Status: $STATUS_EMOJI $STATUS_TEXT"
           FORMATTED_BODY="$FORMATTED_BODY\n$STATUS_MESSAGE"
 
-          if [[ "$ISSUES_FORMATTED" != "" ]]; then
+          if [[ -n "$ISSUES_FORMATTED" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n### 📋 Issues Found:"
             FORMATTED_BODY="$FORMATTED_BODY\n$ISSUES_FORMATTED"
           fi
 
-          if [[ "$SUGGESTIONS_FORMATTED" != "" ]]; then
+          if [[ -n "$SUGGESTIONS_FORMATTED" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n### 💡 Suggestions for Improvement:"
             FORMATTED_BODY="$FORMATTED_BODY\n$SUGGESTIONS_FORMATTED"
           fi
 
           # Add improved content sections if available
-          if [[ "$IMPROVED_TITLE" != "" || "$IMPROVED_COMMITS" != "" || "$IMPROVED_DESCRIPTION" != "" ]]; then
+          if [[ -n "$IMPROVED_TITLE" || -n "$IMPROVED_COMMITS" || -n "$IMPROVED_DESCRIPTION" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n### ✨ Specific Improvements:"
           fi
 
-          if [[ "$IMPROVED_TITLE" != "" ]]; then
+          if [[ -n "$IMPROVED_TITLE" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📝 Suggested PR Title:"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
             FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_TITLE"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
           fi
 
-          if [[ "$IMPROVED_COMMITS" != "" ]]; then
+          if [[ -n "$IMPROVED_COMMITS" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📋 Suggested Commit Message:"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
             FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_COMMITS"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
           fi
 
-          if [[ "$IMPROVED_DESCRIPTION" != "" ]]; then
+          if [[ -n "$IMPROVED_DESCRIPTION" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📄 Suggested PR Description:"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
             FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_DESCRIPTION"
@@ -250,9 +248,9 @@ jobs:
           FORMATTED_BODY="$FORMATTED_BODY\n*Automated validation based on our [contribution guidelines](CONTRIBUTING.md).*"
           FORMATTED_BODY="$FORMATTED_BODY\n*If you believe this is incorrect, please mention a maintainer for review.*"
 
-          # Output formatted result
+          # Output formatted result using heredoc for multiline
           echo "FORMATTED_BODY<<EOF" >> $GITHUB_OUTPUT
-          echo "$FORMATTED_BODY" >> $GITHUB_OUTPUT
+          echo -e "$FORMATTED_BODY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           # Also output simple status for status checks
