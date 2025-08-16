@@ -1,6 +1,9 @@
 {
   "configModule": {
     "name": "Configuration Module",
-    "description": "This module handles application configuration management"
+    "description": "This module handles application configuration management",
+    "usageExamples": {
+      "javascript": "const config = require('./config'); const dbUrl = config.get('DATABASE_URL');"
+    }
   }
 }
