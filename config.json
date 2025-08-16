@@ -4,6 +4,11 @@
     "description": "This module handles application configuration management",
     "usageExamples": {
       "javascript": "const config = require('./config'); const dbUrl = config.get('DATABASE_URL');"
-    }
+    },
+    "bestPractices": [
+      "Use environment variables for sensitive data",
+      "Validate configuration on startup",
+      "Provide sensible defaults"
+    ]
   }
 }
