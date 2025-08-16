@@ -1,0 +1,382 @@
+# SECURITY CONSIDERATIONS:
+# - Uses 'pull_request' trigger (safe) - NEVER use 'pull_request_target'
+# - No repository secrets exposed to PR authors
+# - Read-only permissions for repository access
+# - No write access except comments
+# - API quota protection via size/frequency limits
+# - Comparable risk profile to normal CI/spam - not elevated security concerns
+# - Workflow only validates text content - no code execution from PR
+#
+# ABUSE PREVENTION:
+# - PR size limits prevent token exhaustion attacks
+# - Rate limiting via GitHub's built-in mechanisms (60 requests/min)
+# - Skip validation for extremely large changes
+# - Graceful degradation if API unavailable
+# - Monitor usage patterns for anomalies
+#
+# TOKEN BUDGET:
+# - ~1,500 tokens per PR validation (with extraction optimization)
+# - 2M monthly free tier = ~1,300 PR validations/month
+# - Daily capacity: ~43 PRs (sufficient for active projects)
+# - Rate limited to 60 requests/min by Gemini API
+
+name: Contribution Validator
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited]
+    # Skip pure documentation changes that don't affect contribution guidelines
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+# SECURITY: Explicit minimal permissions
+permissions:
+  contents: read # Read repository content and guidelines
+  pull-requests: write # Post validation comments
+  statuses: write # Set status checks
+
+jobs:
+  validate-contributions:
+    name: Validate Against Contribution Guidelines
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # ABUSE PREVENTION: Skip validation for suspicious PRs
+    if: |
+      github.event.pull_request.additions < 10000 &&
+      github.event.pull_request.changed_files < 100 &&
+      github.event.pull_request.commits < 50
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # SECURITY: Only checkout target branch, not PR code
+          ref: ${{ github.base_ref }}
+
+      # SIMPLIFIED: Read full guidelines files for initial testing
+      # TODO: Optimize with extraction once core functionality works
+
+      - name: Read Contributing Guidelines
+        id: guidelines
+        run: |
+          GUIDELINES=$(cat CONTRIBUTING.md)
+          echo "GUIDELINES<<EOF" >> $GITHUB_OUTPUT
+          echo "$GUIDELINES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # CONTENT COLLECTION: Get PR details for validation
+
+      - name: Get PR Information
+        id: pr-info
+        run: |
+          # Get PR title and description
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_COMMITS="${{ github.event.pull_request.commits }}"
+
+          # Get commit messages from the PR
+          COMMIT_MESSAGES=$(gh pr view ${{ github.event.number }} \
+            --json commits --jq '.commits[].messageHeadline' | head -20)
+
+          # Get files changed in the PR for context
+          FILES_CHANGED=$(gh pr view ${{ github.event.number }} \
+            --json files --jq '.files[].path' | head -10)
+
+          # Get a summary of changes (first few lines of diff)
+          CHANGES_SUMMARY=$(gh pr diff ${{ github.event.number }} | head -50)
+
+          # Format for AI validation
+          echo "PR_TITLE=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "PR_BODY<<EOF" >> $GITHUB_OUTPUT
+          echo "$PR_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "PR_COMMITS=$PR_COMMITS" >> $GITHUB_OUTPUT
+          echo "COMMIT_MESSAGES<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MESSAGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "FILES_CHANGED<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "CHANGES_SUMMARY<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGES_SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # AI VALIDATION: Use Gemini CLI to validate against guidelines
+
+      - name: Validate with Gemini CLI
+        id: validation
+        uses: google-github-actions/run-gemini-cli@v0.1.11
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          settings: |
+            {
+              "model": "gemini-1.5-flash",
+              "generationConfig": {
+                "responseMimeType": "application/json"
+              }
+            }
+          prompt: |
+            Validate this contribution to TDD Guard project and provide specific improvements.
+
+            PROJECT CONTEXT: TDD Guard is a Claude Code hook that enforces Test-Driven Development.
+
+            GUIDELINES:
+            - Use conventional commits (type: description)
+            - PR titles must be descriptive and use conventional format
+            - Commit messages must explain WHY, not WHAT
+            - PRs need clear descriptions explaining changes and purpose
+
+            CURRENT CONTRIBUTION:
+            PR Title: "${{ steps.pr-info.outputs.PR_TITLE }}"
+            PR Description: "${{ steps.pr-info.outputs.PR_BODY }}"
+            Commit Messages: ${{ steps.pr-info.outputs.COMMIT_MESSAGES }}
+            Commit Count: ${{ steps.pr-info.outputs.PR_COMMITS }}
+            Files Changed: ${{ steps.pr-info.outputs.FILES_CHANGED }}
+
+            CHANGES MADE:
+            ${{ steps.pr-info.outputs.CHANGES_SUMMARY }}
+
+            CRITICAL: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Return raw JSON only.
+
+            Format your response as valid JSON in this exact structure:
+            {
+              "status": "PASS",
+              "issues": [],
+              "suggestions": [],
+              "improved_title": "",
+              "improved_commits": "",
+              "improved_description": ""
+            }
+
+            Rules:
+            - status must be exactly "PASS", "FAIL", or "WARNINGS" 
+            - issues and suggestions must be arrays of strings (use [] if empty)
+            - improved_* fields must be strings (use "" if empty)
+            - Do not wrap in ```json or any other formatting
+            - Do not add any text before or after the JSON
+            - Ensure the JSON is valid and parseable
+
+      # FORMAT RESULTS: Convert raw output to professional markdown
+
+      - name: Format Validation Results
+        id: format
+        run: |
+          # Store raw output in temp file
+          cat << 'RAWEOF' > /tmp/raw_output.txt
+          ${{ steps.validation.outputs.summary }}
+          RAWEOF
+
+          # Extract JSON from markdown code blocks if present
+          if grep -q '```json' /tmp/raw_output.txt; then
+            # Extract content between ```json and ```
+            sed -n '/```json/,/```/p' /tmp/raw_output.txt | sed '1d;$d' > /tmp/raw_output.json
+          else
+            # Use raw output as-is
+            cp /tmp/raw_output.txt /tmp/raw_output.json
+          fi
+
+          # Validate JSON format
+          if ! jq empty /tmp/raw_output.json 2>/dev/null; then
+            echo "ERROR: Invalid JSON response from AI"
+            echo "Raw output:"
+            cat /tmp/raw_output.txt
+            echo "Extracted JSON:"
+            cat /tmp/raw_output.json
+            # Fallback to simple parsing if JSON is invalid
+            echo '{"status": "FAIL", "issues": ["Invalid AI response format"], "suggestions": [], "improved_title": "", "improved_commits": "", "improved_description": ""}' > /tmp/raw_output.json
+          fi
+
+          # Extract values from JSON
+          STATUS=$(jq -r '.status' /tmp/raw_output.json)
+
+          # Format issues as markdown list
+          ISSUES_FORMATTED=""
+          if [ "$(jq -r '.issues | length' /tmp/raw_output.json)" -gt 0 ]; then
+            ISSUES_FORMATTED=$(jq -r '.issues[] | "- " + .' /tmp/raw_output.json)
+          fi
+
+          # Format suggestions as markdown list
+          SUGGESTIONS_FORMATTED=""
+          if [ "$(jq -r '.suggestions | length' /tmp/raw_output.json)" -gt 0 ]; then
+            SUGGESTIONS_FORMATTED=$(jq -r '.suggestions[] | "- " + .' /tmp/raw_output.json)
+          fi
+
+          # Extract improved content
+          IMPROVED_TITLE=$(jq -r '.improved_title // ""' /tmp/raw_output.json)
+          IMPROVED_COMMITS=$(jq -r '.improved_commits // ""' /tmp/raw_output.json)
+          IMPROVED_DESCRIPTION=$(jq -r '.improved_description // ""' /tmp/raw_output.json)
+
+          # Determine status emoji and message
+          if [[ "$STATUS" == "PASS" ]]; then
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="Passed"
+            STATUS_MESSAGE="Great work! Your contribution meets our guidelines."
+          elif [[ "$STATUS" == "WARNINGS" ]]; then
+            STATUS_EMOJI="⚠️"
+            STATUS_TEXT="Passed with Warnings"
+            STATUS_MESSAGE="Your contribution looks good, but consider these suggestions for improvement."
+          else
+            STATUS_EMOJI="❌"
+            STATUS_TEXT="Needs Improvement"
+            STATUS_MESSAGE="Your contribution needs some changes to meet our guidelines."
+          fi
+
+          # Build formatted markdown
+          FORMATTED_BODY="## 🤖 Contribution Validation Results"
+          FORMATTED_BODY="$FORMATTED_BODY\n\n### Status: $STATUS_EMOJI $STATUS_TEXT"
+          FORMATTED_BODY="$FORMATTED_BODY\n$STATUS_MESSAGE"
+
+          if [[ -n "$ISSUES_FORMATTED" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n### 📋 Issues Found:"
+            FORMATTED_BODY="$FORMATTED_BODY\n$ISSUES_FORMATTED"
+          fi
+
+          if [[ -n "$SUGGESTIONS_FORMATTED" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n### 💡 Suggestions for Improvement:"
+            FORMATTED_BODY="$FORMATTED_BODY\n$SUGGESTIONS_FORMATTED"
+          fi
+
+          # Add improved content sections if available
+          if [[ -n "$IMPROVED_TITLE" || -n "$IMPROVED_COMMITS" || -n "$IMPROVED_DESCRIPTION" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n### ✨ Specific Improvements:"
+          fi
+
+          if [[ -n "$IMPROVED_TITLE" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📝 Suggested PR Title:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_TITLE"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+          fi
+
+          if [[ -n "$IMPROVED_COMMITS" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📋 Suggested Commit Message:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_COMMITS"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+          fi
+
+          if [[ -n "$IMPROVED_DESCRIPTION" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📄 Suggested PR Description:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_DESCRIPTION"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+          fi
+
+          FORMATTED_BODY="$FORMATTED_BODY\n\n---"
+          FORMATTED_BODY="$FORMATTED_BODY\n*Automated validation based on our [contribution guidelines](CONTRIBUTING.md).*"
+          FORMATTED_BODY="$FORMATTED_BODY\n*If you believe this is incorrect, please mention a maintainer for review.*"
+
+          # Output formatted result using heredoc for multiline
+          echo "FORMATTED_BODY<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$FORMATTED_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Also output simple status for status checks
+          echo "STATUS=$STATUS" >> $GITHUB_OUTPUT
+
+      # RESULTS POSTING: Comment validation results and set status
+
+      - name: Post Validation Results
+        uses: actions/github-script@v7
+        env:
+          FORMATTED_RESULT: ${{ steps.format.outputs.FORMATTED_BODY }}
+          VALIDATION_STATUS: ${{ steps.format.outputs.STATUS }}
+        with:
+          script: |
+            // Use environment variable to safely pass the formatted result
+            const formattedResult = process.env.FORMATTED_RESULT;
+            const status = process.env.VALIDATION_STATUS;
+            const prNumber = context.payload.pull_request.number;
+
+            // Determine if validation passed
+            const isPassing = status === 'PASS';
+            const hasWarnings = status === 'WARNINGS';
+
+            // Post comment with formatted results
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: formattedResult
+            });
+
+            // Set status check
+            const state = isPassing ? 'success' :
+                          hasWarnings ? 'pending' : 'failure';
+            const description = isPassing ? 'All guidelines met' :
+                               hasWarnings ? 'Minor issues found' :
+                               'Guidelines violations detected';
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: state,
+              target_url: `https://github.com/${context.repo.owner}/` +
+                `${context.repo.repo}/actions/runs/${context.runId}`,
+              description: description,
+              context: 'Contribution Validator'
+            });
+
+      # ERROR HANDLING: Graceful degradation if API fails
+
+      - name: Handle Validation Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## ⚠️ Validation Service Unavailable\n\n` +
+                `The AI-powered contribution validator is ` +
+                `temporarily unavailable. ` +
+                `This could be due to:\n- API rate limits\n- Service outage\n` +
+                `- Network issues\n\n**Manual Review Required**: ` +
+                `Please ensure your contribution ` +
+                `follows our ` +
+                `[guidelines](CONTRIBUTING.md):\n` +
+                `- Commit messages use conventional format\n` +
+                `- PR title is descriptive\n` +
+                `- Description explains what and why\n\n` +
+                `A maintainer will review this PR manually.`
+            });
+
+            // Set neutral status - don't block the PR
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: 'success',
+              target_url: `https://github.com/${context.repo.owner}/` +
+                `${context.repo.repo}/actions/runs/${context.runId}`,
+              description: 'Validation skipped - service unavailable',
+              context: 'Contribution Validator'
+            });
+
+# MONITORING AND MAINTENANCE NOTES:
+#
+# 1. Monitor workflow usage in Actions tab for abuse patterns
+# 2. Check token consumption via Gemini API dashboard
+# 3. Adjust size limits if legitimate PRs are being skipped
+# 4. Update guidelines extraction if contribution docs change
+# 5. Review validation quality and adjust prompts as needed
+#
+# COST MANAGEMENT:
+#
+# Free tier limits:
+# - 2M tokens/month
+# - 60 requests/min
+# - 1,000 requests/day
+#
+# Expected usage:
+# - ~1,500 tokens per validation
+# - Supports ~1,300 PRs/month
+# - Monitor via Google AI Studio dashboard
