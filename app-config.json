@@ -1,6 +1,16 @@
 {
   "application": {
     "name": "TDD Guard",
-    "version": "1.0.0"
+    "version": "1.0.0",
+    "environments": {
+      "development": {
+        "debug": true,
+        "logLevel": "verbose"
+      },
+      "production": {
+        "debug": false,
+        "logLevel": "error"
+      }
+    }
   }
 }
