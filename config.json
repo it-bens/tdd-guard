@@ -1,0 +1,6 @@
+{
+  "configModule": {
+    "name": "Configuration Module",
+    "description": "This module handles application configuration management"
+  }
+}
