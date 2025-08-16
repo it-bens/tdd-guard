@@ -1,0 +1,5 @@
+Test configuration for JSON parsing verification.
+
+This file tests the new JSON-based AI response parsing
+to verify that the workflow can properly parse JSON responses
+from the Gemini API instead of using complex shell parsing.
