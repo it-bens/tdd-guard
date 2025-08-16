@@ -286,13 +286,39 @@ jobs:
             const isPassing = status === 'PASS';
             const hasWarnings = status === 'WARNINGS';
 
-            // Post comment with formatted results
-            await github.rest.issues.createComment({
+            // Find existing comment from this workflow
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: prNumber,
-              body: formattedResult
+              issue_number: prNumber
             });
+
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('🤖 Contribution Validation Results')
+            );
+
+            // Add timestamp to the result
+            const timestamp = new Date().toISOString().replace('T', ' ').split('.')[0] + ' UTC';
+            const bodyWithTimestamp = formattedResult + '\n\n_Last updated: ' + timestamp + '_';
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: bodyWithTimestamp
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: bodyWithTimestamp
+              });
+            }
 
             // Set status check
             const state = isPassing ? 'success' :
@@ -321,23 +347,52 @@ jobs:
           script: |
             const prNumber = context.payload.pull_request.number;
 
-            await github.rest.issues.createComment({
+            // Find existing comment from this workflow
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `## ⚠️ Validation Service Unavailable\n\n` +
-                `The AI-powered contribution validator is ` +
-                `temporarily unavailable. ` +
-                `This could be due to:\n- API rate limits\n- Service outage\n` +
-                `- Network issues\n\n**Manual Review Required**: ` +
-                `Please ensure your contribution ` +
-                `follows our ` +
-                `[guidelines](CONTRIBUTING.md):\n` +
-                `- Commit messages use conventional format\n` +
-                `- PR title is descriptive\n` +
-                `- Description explains what and why\n\n` +
-                `A maintainer will review this PR manually.`
+              issue_number: prNumber
             });
+
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              (comment.body.includes('🤖 Contribution Validation Results') ||
+               comment.body.includes('⚠️ Validation Service Unavailable'))
+            );
+
+            // Add timestamp to the error message
+            const timestamp = new Date().toISOString().replace('T', ' ').split('.')[0] + ' UTC';
+            const errorBody = `## ⚠️ Validation Service Unavailable\n\n` +
+              `The AI-powered contribution validator is ` +
+              `temporarily unavailable. ` +
+              `This could be due to:\n- API rate limits\n- Service outage\n` +
+              `- Network issues\n\n**Manual Review Required**: ` +
+              `Please ensure your contribution ` +
+              `follows our ` +
+              `[guidelines](CONTRIBUTING.md):\n` +
+              `- Commit messages use conventional format\n` +
+              `- PR title is descriptive\n` +
+              `- Description explains what and why\n\n` +
+              `A maintainer will review this PR manually.\n\n` +
+              `_Last updated: ${timestamp}_`;
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: errorBody
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: errorBody
+              });
+            }
 
             // Set neutral status - don't block the PR
             await github.rest.repos.createCommitStatus({
