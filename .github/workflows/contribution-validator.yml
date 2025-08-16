@@ -155,14 +155,25 @@ jobs:
         id: format
         run: |
           # Store raw output in temp file
-          cat << 'RAWEOF' > /tmp/raw_output.json
+          cat << 'RAWEOF' > /tmp/raw_output.txt
           ${{ steps.validation.outputs.summary }}
           RAWEOF
+
+          # Extract JSON from markdown code blocks if present
+          if grep -q '```json' /tmp/raw_output.txt; then
+            # Extract content between ```json and ```
+            sed -n '/```json/,/```/p' /tmp/raw_output.txt | sed '1d;$d' > /tmp/raw_output.json
+          else
+            # Use raw output as-is
+            cp /tmp/raw_output.txt /tmp/raw_output.json
+          fi
 
           # Validate JSON format
           if ! jq empty /tmp/raw_output.json 2>/dev/null; then
             echo "ERROR: Invalid JSON response from AI"
             echo "Raw output:"
+            cat /tmp/raw_output.txt
+            echo "Extracted JSON:"
             cat /tmp/raw_output.json
             # Fallback to simple parsing if JSON is invalid
             echo '{"status": "FAIL", "issues": ["Invalid AI response format"], "suggestions": [], "improved_title": "", "improved_commits": "", "improved_description": ""}' > /tmp/raw_output.json
