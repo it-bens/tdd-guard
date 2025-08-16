@@ -42,3 +42,44 @@ Enable debug logging:
 ```bash
 export TDD_GUARD_DEBUG=true
 ```
+
+## Example Scenarios
+
+### Scenario 1: Tests Not Detected
+
+**Problem**: TDD Guard says "No tests found"
+
+**Solution**:
+
+1. Check test file naming conventions
+2. Verify test directory structure
+3. Ensure test files contain actual test functions
+
+Example correct structure:
+
+```
+src/
+  utils.ts
+test/
+  utils.test.ts  # or utils.spec.ts
+```
+
+### Scenario 2: Hook Permissions Error
+
+**Problem**: Permission denied when accessing hooks
+
+**Solution**:
+
+```bash
+chmod +x .claude/hooks/*
+```
+
+### Scenario 3: False Positives
+
+**Problem**: TDD Guard blocks valid operations
+
+**Solution**:
+
+1. Check if tests truly cover the functionality
+2. Verify test assertions are meaningful
+3. Consider test quality, not just quantity
