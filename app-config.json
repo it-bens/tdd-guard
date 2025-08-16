@@ -11,6 +11,11 @@
         "debug": false,
         "logLevel": "error"
       }
+    },
+    "features": {
+      "strictMode": true,
+      "experimentalLinters": false,
+      "aiValidation": true
     }
   }
 }
