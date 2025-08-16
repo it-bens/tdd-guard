@@ -146,15 +146,14 @@ jobs:
             {
               "status": "PASS",
               "issues": [],
-              "suggestions": [],
-              "improved_title": "",
               "improved_commits": "",
+              "improved_title": "",
               "improved_description": ""
             }
 
             Rules:
             - status must be exactly "PASS", "FAIL", or "WARNINGS" 
-            - issues and suggestions must be arrays of strings (use [] if empty)
+            - issues must be an array of strings (use [] if empty)
             - improved_* fields must be strings (use "" if empty)
             - Do not wrap in ```json or any other formatting
             - Do not add any text before or after the JSON
@@ -199,11 +198,6 @@ jobs:
             ISSUES_FORMATTED=$(jq -r '.issues[] | "- " + .' /tmp/raw_output.json)
           fi
 
-          # Format suggestions as markdown list
-          SUGGESTIONS_FORMATTED=""
-          if [ "$(jq -r '.suggestions | length' /tmp/raw_output.json)" -gt 0 ]; then
-            SUGGESTIONS_FORMATTED=$(jq -r '.suggestions[] | "- " + .' /tmp/raw_output.json)
-          fi
 
           # Extract improved content
           IMPROVED_TITLE=$(jq -r '.improved_title // ""' /tmp/raw_output.json)
@@ -235,27 +229,23 @@ jobs:
             FORMATTED_BODY="$FORMATTED_BODY\n$ISSUES_FORMATTED"
           fi
 
-          if [[ -n "$SUGGESTIONS_FORMATTED" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n### 💡 Suggestions for Improvement:"
-            FORMATTED_BODY="$FORMATTED_BODY\n$SUGGESTIONS_FORMATTED"
-          fi
 
           # Add improved content sections if available
           if [[ -n "$IMPROVED_TITLE" || -n "$IMPROVED_COMMITS" || -n "$IMPROVED_DESCRIPTION" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n### ✨ Specific Improvements:"
           fi
 
-          if [[ -n "$IMPROVED_TITLE" ]]; then
-            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📝 Suggested PR Title:"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
-            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_TITLE"
-            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
-          fi
-
           if [[ -n "$IMPROVED_COMMITS" ]]; then
             FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📋 Suggested Commit Message:"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
             FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_COMMITS"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+          fi
+
+          if [[ -n "$IMPROVED_TITLE" ]]; then
+            FORMATTED_BODY="$FORMATTED_BODY\n\n#### 📝 Suggested PR Title:"
+            FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
+            FORMATTED_BODY="$FORMATTED_BODY\n$IMPROVED_TITLE"
             FORMATTED_BODY="$FORMATTED_BODY\n\`\`\`"
           fi
 
