@@ -114,7 +114,10 @@ jobs:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           settings: |
             {
-              "model": "gemini-1.5-flash"
+              "model": "gemini-1.5-flash",
+              "generationConfig": {
+                "responseMimeType": "application/json"
+              }
             }
           prompt: |
             Validate this contribution to TDD Guard project and provide specific improvements.
@@ -137,17 +140,25 @@ jobs:
             CHANGES MADE:
             ${{ steps.pr-info.outputs.CHANGES_SUMMARY }}
 
-            Return ONLY valid JSON in this exact format (no other text):
+            CRITICAL: You MUST respond with ONLY valid JSON. Do not include any explanatory text, markdown formatting, or code blocks. Return raw JSON only.
+
+            Format your response as valid JSON in this exact structure:
             {
-              "status": "PASS" or "FAIL" or "WARNINGS",
-              "issues": ["issue 1", "issue 2"] or [],
-              "suggestions": ["suggestion 1", "suggestion 2"] or [],
-              "improved_title": "suggested PR title" or "",
-              "improved_commits": "suggested commit message with\nmultiple lines" or "",
-              "improved_description": "suggested PR description\nwith multiple lines" or ""
+              "status": "PASS",
+              "issues": [],
+              "suggestions": [],
+              "improved_title": "",
+              "improved_commits": "",
+              "improved_description": ""
             }
 
-            Ensure the response is valid JSON that can be parsed. Use empty arrays [] for no issues/suggestions, and empty strings "" for no improvements.
+            Rules:
+            - status must be exactly "PASS", "FAIL", or "WARNINGS" 
+            - issues and suggestions must be arrays of strings (use [] if empty)
+            - improved_* fields must be strings (use "" if empty)
+            - Do not wrap in ```json or any other formatting
+            - Do not add any text before or after the JSON
+            - Ensure the JSON is valid and parseable
 
       # FORMAT RESULTS: Convert raw output to professional markdown
 
