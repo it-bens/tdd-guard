@@ -163,42 +163,63 @@ jobs:
           cat /tmp/raw_output.txt >> $GITHUB_STEP_SUMMARY
           echo "=== END DEBUG ===" >> $GITHUB_STEP_SUMMARY
 
-          # Extract and format issues using a safer approach
-          ISSUES_RAW=$(grep "ISSUES:" /tmp/raw_output.txt | sed 's/ISSUES: //' || echo "")
-          SUGGESTIONS_RAW=$(grep "SUGGESTIONS:" /tmp/raw_output.txt | sed 's/SUGGESTIONS: //' || echo "")
+          # Extract multiline content using awk for proper parsing
+          ISSUES_RAW=$(awk '/^ISSUES:/{flag=1; next} /^SUGGESTIONS:|^IMPROVED_TITLE:|^IMPROVED_COMMITS:|^IMPROVED_DESCRIPTION:|^STATUS:/{flag=0} flag' /tmp/raw_output.txt)
+          SUGGESTIONS_RAW=$(awk '/^SUGGESTIONS:/{flag=1; next} /^ISSUES:|^IMPROVED_TITLE:|^IMPROVED_COMMITS:|^IMPROVED_DESCRIPTION:|^STATUS:/{flag=0} flag' /tmp/raw_output.txt)
 
-          # Convert JSON arrays to markdown lists using jq if possible, otherwise simple parsing
+          # Enhanced debugging to see extracted content
+          echo "=== EXTRACTED ISSUES ===" >> $GITHUB_STEP_SUMMARY
+          echo "[$ISSUES_RAW]" >> $GITHUB_STEP_SUMMARY
+          echo "=== EXTRACTED SUGGESTIONS ===" >> $GITHUB_STEP_SUMMARY
+          echo "[$SUGGESTIONS_RAW]" >> $GITHUB_STEP_SUMMARY
+
+          # Convert content to markdown lists with better handling
           ISSUES_FORMATTED=""
-          if [[ "$ISSUES_RAW" != *"None"* && "$ISSUES_RAW" != "" && "$ISSUES_RAW" != "ISSUES:" ]]; then
-            # Try to parse as JSON array, fallback to simple parsing
+          if [[ -n "$ISSUES_RAW" && "$ISSUES_RAW" != "None" && "$ISSUES_RAW" != "ISSUES:" ]]; then
+            # Try to parse as JSON array first
             if echo "$ISSUES_RAW" | jq -r '.[]' > /dev/null 2>&1; then
               ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | jq -r '.[] | "- " + .')
             else
-              # Simple text parsing for non-JSON format
-              ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
+              # Handle both JSON array format and plain text
+              if [[ "$ISSUES_RAW" == \[* ]]; then
+                # JSON array format: ["item1", "item2"]
+                ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
+              else
+                # Plain text or other format - treat each line as an item
+                ISSUES_FORMATTED=$(echo "$ISSUES_RAW" | sed 's/^/- /' | sed '/^- *$/d')
+              fi
             fi
           fi
 
           SUGGESTIONS_FORMATTED=""
-          if [[ "$SUGGESTIONS_RAW" != *"None"* && "$SUGGESTIONS_RAW" != "" && "$SUGGESTIONS_RAW" != "SUGGESTIONS:" ]]; then
-            # Try to parse as JSON array, fallback to simple parsing
+          if [[ -n "$SUGGESTIONS_RAW" && "$SUGGESTIONS_RAW" != "None" && "$SUGGESTIONS_RAW" != "SUGGESTIONS:" ]]; then
+            # Try to parse as JSON array first
             if echo "$SUGGESTIONS_RAW" | jq -r '.[]' > /dev/null 2>&1; then
               SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | jq -r '.[] | "- " + .')
             else
-              # Simple text parsing for non-JSON format
-              SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
+              # Handle both JSON array format and plain text
+              if [[ "$SUGGESTIONS_RAW" == \[* ]]; then
+                # JSON array format: ["item1", "item2"]
+                SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/\["//' | sed 's/"\]//' | sed 's/", *"/\n- /g' | sed 's/^/- /')
+              else
+                # Plain text or other format - treat each line as an item
+                SUGGESTIONS_FORMATTED=$(echo "$SUGGESTIONS_RAW" | sed 's/^/- /' | sed '/^- *$/d')
+              fi
             fi
           fi
 
-          # Extract improved content suggestions with better error handling
-          IMPROVED_TITLE=$(grep "IMPROVED_TITLE:" /tmp/raw_output.txt | sed 's/IMPROVED_TITLE: //' | head -1 || echo "")
-          IMPROVED_COMMITS=$(grep "IMPROVED_COMMITS:" /tmp/raw_output.txt | sed 's/IMPROVED_COMMITS: //' | head -1 || echo "")
-          IMPROVED_DESCRIPTION=$(grep "IMPROVED_DESCRIPTION:" /tmp/raw_output.txt | sed 's/IMPROVED_DESCRIPTION: //' | head -1 || echo "")
+          # Extract improved content using multiline-aware approach
+          IMPROVED_TITLE=$(awk '/^IMPROVED_TITLE:/{flag=1; next} /^IMPROVED_COMMITS:|^IMPROVED_DESCRIPTION:|^ISSUES:|^SUGGESTIONS:|^STATUS:/{flag=0} flag' /tmp/raw_output.txt | head -5 | tr '\n' ' ' | sed 's/^[ \t]*//;s/[ \t]*$//')
+          IMPROVED_COMMITS=$(awk '/^IMPROVED_COMMITS:/{flag=1; next} /^IMPROVED_TITLE:|^IMPROVED_DESCRIPTION:|^ISSUES:|^SUGGESTIONS:|^STATUS:/{flag=0} flag' /tmp/raw_output.txt)
+          IMPROVED_DESCRIPTION=$(awk '/^IMPROVED_DESCRIPTION:/{flag=1; next} /^IMPROVED_TITLE:|^IMPROVED_COMMITS:|^ISSUES:|^SUGGESTIONS:|^STATUS:/{flag=0} flag' /tmp/raw_output.txt)
 
-          # Clean up any remaining field names that appear as content
-          IMPROVED_TITLE=$(echo "$IMPROVED_TITLE" | sed 's/^IMPROVED_TITLE://g' | sed 's/^IMPROVED_COMMITS://g' | sed 's/^IMPROVED_DESCRIPTION://g')
-          IMPROVED_COMMITS=$(echo "$IMPROVED_COMMITS" | sed 's/^IMPROVED_TITLE://g' | sed 's/^IMPROVED_COMMITS://g' | sed 's/^IMPROVED_DESCRIPTION://g')
-          IMPROVED_DESCRIPTION=$(echo "$IMPROVED_DESCRIPTION" | sed 's/^IMPROVED_TITLE://g' | sed 's/^IMPROVED_COMMITS://g' | sed 's/^IMPROVED_DESCRIPTION://g')
+          # Debug extracted improved content
+          echo "=== EXTRACTED IMPROVED TITLE ===" >> $GITHUB_STEP_SUMMARY
+          echo "[$IMPROVED_TITLE]" >> $GITHUB_STEP_SUMMARY
+          echo "=== EXTRACTED IMPROVED COMMITS ===" >> $GITHUB_STEP_SUMMARY
+          echo "[$IMPROVED_COMMITS]" >> $GITHUB_STEP_SUMMARY
+          echo "=== EXTRACTED IMPROVED DESCRIPTION ===" >> $GITHUB_STEP_SUMMARY
+          echo "[$IMPROVED_DESCRIPTION]" >> $GITHUB_STEP_SUMMARY
 
           # Determine status emoji and message
           if [[ "$STATUS" == "PASS" ]]; then
