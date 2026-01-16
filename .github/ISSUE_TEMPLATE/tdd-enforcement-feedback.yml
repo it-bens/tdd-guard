@@ -1,0 +1,157 @@
+name: TDD Enforcement Feedback
+description: Report inconsistent TDD enforcement or suggest prompt improvements
+title: '[TDD Feedback]: '
+labels: ['tdd-enforcement', 'feedback']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve TDD Guard! This form collects structured feedback about validation behavior.
+
+  - type: dropdown
+    id: model
+    attributes:
+      label: Validation Model
+      description: Which model was used for TDD validation?
+      options:
+        - Haiku 4.5
+        - Sonnet 4.5 (default)
+        - Opus 4.5
+        - GLM 4.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: instructions-type
+    attributes:
+      label: Instructions Type
+      description: Did you use default or custom instructions.md?
+      options:
+        - Default instructions
+        - Custom modifications
+    validations:
+      required: true
+
+  - type: textarea
+    id: custom-instructions
+    attributes:
+      label: Custom Instructions Content
+      description: If using custom modifications, paste your instructions.md content here
+      render: markdown
+    validations:
+      required: false
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue Type
+      description: What type of enforcement issue?
+      options:
+        - False positive (blocked valid TDD operation)
+        - False negative (allowed TDD violation)
+        - Inconsistent behavior (sometimes works, sometimes doesn't)
+        - Prompt improvement suggestion
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the enforcement issue
+      placeholder: 'The validator blocked my edit even though I had a failing test...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: modifications-json
+    attributes:
+      label: File Operation (modifications.json)
+      description: |
+        Paste the contents of `.claude/tdd-guard/data/modifications.json`
+        This shows what Claude tried to do.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: test-json
+    attributes:
+      label: Test Results (test.json)
+      description: |
+        Paste the contents of `.claude/tdd-guard/data/test.json`
+        This shows the test state at the time.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: todos-json
+    attributes:
+      label: Todo State (todos.json)
+      description: |
+        Paste the contents of `.claude/tdd-guard/data/todos.json` (optional but helpful)
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: lint-json
+    attributes:
+      label: Lint Results (lint.json)
+      description: |
+        If applicable, paste `.claude/tdd-guard/data/lint.json`
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: validator-response
+    attributes:
+      label: Validator Response
+      description: |
+        The TDD Guard response/decision (if available from logs or output)
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: transcript-excerpt
+    attributes:
+      label: Transcript Excerpt (Optional)
+      description: |
+        Relevant portion of the Claude session transcript. Find it at:
+        `~/.claude/projects/<project-hash>/<session-id>.jsonl`
+
+        Include the turn(s) where the enforcement issue occurred.
+        **Tip**: Search for "tdd-guard" in the transcript to find relevant entries.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: working-improvement
+    attributes:
+      label: Working Improvement (if applicable)
+      description: |
+        If you found prompt changes that fixed the issue, share them here.
+        This helps us improve default prompts for everyone.
+      render: markdown
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have removed any sensitive information from the shared data
+          required: true

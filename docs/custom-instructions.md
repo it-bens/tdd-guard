@@ -40,4 +40,5 @@ Prevent agents from modifying your custom instructions by denying access to TDD 
 
 - Start with the default instructions and modify incrementally
 - Keep rules clear and actionable for consistent validation
+- When using alternative models like GLM 4.7, instructions require specific formatting. See [Using GLM 4.7](glm-alternative-model.md) for model-specific optimizations.
 - Share effective customizations with the TDD Guard community in [GitHub Discussions](https://github.com/nizos/tdd-guard/discussions)

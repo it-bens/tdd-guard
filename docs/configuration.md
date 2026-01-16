@@ -36,6 +36,7 @@ TDD Guard supports multiple validation clients:
 
 - **SDK** (default) - Uses your Claude Code subscription
 - **API** - Separate billing for CI/CD or faster validation
+- **GLM 4.7** - Cost-effective alternative, see [Using GLM 4.7](glm-alternative-model.md)
 - **CLI** (deprecated) - Legacy option, not recommended
 
 For detailed configuration, billing information, and troubleshooting, see the [Validation Model Configuration](validation-model.md) guide.

@@ -58,6 +58,10 @@ TDD_GUARD_MODEL_VERSION=claude-opus-4-1
 
 See [Claude model overview](https://docs.anthropic.com/en/docs/about-claude/models/overview) for available models and pricing. Note: pricing only applies to API users - SDK uses your Claude Code subscription by default. Balance model capability with [custom instructions](custom-instructions.md) to optimize for your needs.
 
+### Alternative Models
+
+For cost-sensitive environments, TDD Guard supports GLM 4.7 as an alternative validation model. See [Using GLM 4.7](glm-alternative-model.md) for configuration and prompt optimization requirements.
+
 ## Migration from Legacy Configuration
 
 If you're using the old `MODEL_TYPE` configuration, see the [Configuration Migration Guide](config-migration.md) for detailed instructions.
